@@ -37,23 +37,31 @@ app.get('/api/test', (req, res) => {
 app.post('/api/video-info', (req, res) => {
     const { url } = req.body;
     
-    const command = `yt-dlp --dump-json "${url}"`;
+    console.log('Fetching video info for:', url);
+    
+    const command = `yt-dlp --dump-json --no-warnings "${url}"`;
     
     exec(command, { maxBuffer: 1024 * 1024 * 10 }, (error, stdout, stderr) => {
         if (error) {
-            return res.status(400).json({ error: 'Video bulunamadı' });
+            console.error('yt-dlp error:', stderr || error.message);
+            return res.status(400).json({ 
+                error: 'Video bulunamadı',
+                details: stderr || error.message
+            });
         }
         
         try {
             const info = JSON.parse(stdout);
+            console.log('Video info fetched:', info.title);
             res.json({
                 id: info.id,
                 title: info.title,
                 thumbnail: info.thumbnail,
                 duration: info.duration,
-                url: info.url || info.formats[0].url
+                url: info.url || (info.formats && info.formats[0] && info.formats[0].url)
             });
         } catch (e) {
+            console.error('JSON parse error:', e.message);
             res.status(500).json({ error: 'Video bilgisi alınamadı' });
         }
     });
@@ -63,14 +71,22 @@ app.post('/api/video-info', (req, res) => {
 app.post('/api/download-url', (req, res) => {
     const { url } = req.body;
     
-    const command = `yt-dlp -f "best[ext=mp4]" -g "${url}"`;
+    console.log('Getting download URL for:', url);
+    
+    // Daha basit format seçimi
+    const command = `yt-dlp -f "best" --get-url "${url}"`;
     
     exec(command, { maxBuffer: 1024 * 1024 * 10 }, (error, stdout, stderr) => {
         if (error) {
-            return res.status(400).json({ error: 'Video URL alınamadı' });
+            console.error('yt-dlp error:', stderr || error.message);
+            return res.status(400).json({ 
+                error: 'Video URL alınamadı',
+                details: stderr || error.message 
+            });
         }
         
-        const videoUrl = stdout.trim();
+        const videoUrl = stdout.trim().split('\n')[0]; // İlk URL'i al
+        console.log('Video URL found:', videoUrl.substring(0, 100) + '...');
         res.json({ videoUrl });
     });
 });
