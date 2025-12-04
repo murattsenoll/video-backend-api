@@ -4,6 +4,35 @@ const app = express();
 
 app.use(express.json());
 
+// CORS ayarları
+app.use((req, res, next) => {
+    res.header('Access-Control-Allow-Origin', '*');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Content-Type');
+    if (req.method === 'OPTIONS') {
+        return res.sendStatus(200);
+    }
+    next();
+});
+
+// Test endpoint
+app.get('/api/test', (req, res) => {
+    exec('yt-dlp --version', (error, stdout, stderr) => {
+        if (error) {
+            return res.json({ 
+                status: 'error', 
+                message: 'yt-dlp not installed',
+                error: error.message 
+            });
+        }
+        res.json({ 
+            status: 'ok', 
+            ytdlpVersion: stdout.trim(),
+            message: 'Backend is working!'
+        });
+    });
+});
+
 // Video bilgisi al
 app.post('/api/video-info', (req, res) => {
     const { url } = req.body;
