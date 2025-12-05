@@ -1,5 +1,5 @@
 const express = require('express');
-const { exec } = require('child_process');
+const https = require('https');
 const app = express();
 
 app.use(express.json());
@@ -15,21 +15,15 @@ app.use((req, res, next) => {
     next();
 });
 
+// Apify API Token - Environment variable'dan alınıyor
+const APIFY_TOKEN = process.env.APIFY_TOKEN;
+
 // Test endpoint
 app.get('/api/test', (req, res) => {
-    exec('yt-dlp --version', (error, stdout, stderr) => {
-        if (error) {
-            return res.json({ 
-                status: 'error', 
-                message: 'yt-dlp not installed',
-                error: error.message 
-            });
-        }
-        res.json({ 
-            status: 'ok', 
-            ytdlpVersion: stdout.trim(),
-            message: 'Backend is working!'
-        });
+    res.json({ 
+        status: 'ok', 
+        message: 'Backend with Apify is working!',
+        tokenPresent: !!APIFY_TOKEN
     });
 });
 
@@ -39,57 +33,123 @@ app.post('/api/video-info', (req, res) => {
     
     console.log('Fetching video info for:', url);
     
-    const command = `yt-dlp --dump-json --no-warnings "${url}"`;
-    
-    exec(command, { maxBuffer: 1024 * 1024 * 10 }, (error, stdout, stderr) => {
-        if (error) {
-            console.error('yt-dlp error:', stderr || error.message);
-            return res.status(400).json({ 
-                error: 'Video bulunamadı',
-                details: stderr || error.message
-            });
-        }
-        
-        try {
-            const info = JSON.parse(stdout);
-            console.log('Video info fetched:', info.title);
-            res.json({
-                id: info.id,
-                title: info.title,
-                thumbnail: info.thumbnail,
-                duration: info.duration,
-                url: info.url || (info.formats && info.formats[0] && info.formats[0].url)
-            });
-        } catch (e) {
-            console.error('JSON parse error:', e.message);
-            res.status(500).json({ error: 'Video bilgisi alınamadı' });
-        }
+    // Apify Actor'ü çalıştır
+    const actorInput = JSON.stringify({
+        videos: [{ url: url }],
+        preferredQuality: '720p',
+        preferredFormat: 'mp4'
     });
+    
+    const options = {
+        hostname: 'api.apify.com',
+        path: `/v2/acts/streamers~youtube-video-downloader/run-sync-get-dataset-items?token=${APIFY_TOKEN}`,
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'Content-Length': actorInput.length
+        }
+    };
+    
+    const apifyReq = https.request(options, (apifyRes) => {
+        let data = '';
+        
+        apifyRes.on('data', (chunk) => {
+            data += chunk;
+        });
+        
+        apifyRes.on('end', () => {
+            try {
+                const results = JSON.parse(data);
+                if (results && results.length > 0) {
+                    const video = results[0];
+                    console.log('Video info fetched from Apify:', video.title);
+                    res.json({
+                        id: video.id || 'unknown',
+                        title: video.title || 'YouTube Video',
+                        thumbnail: video.thumbnail || '',
+                        duration: video.duration || 0,
+                        url: video.downloadUrl || ''
+                    });
+                } else {
+                    res.status(400).json({ error: 'Video bulunamadı' });
+                }
+            } catch (e) {
+                console.error('Apify parse error:', e.message);
+                res.status(500).json({ error: 'Video bilgisi alınamadı' });
+            }
+        });
+    });
+    
+    apifyReq.on('error', (e) => {
+        console.error('Apify request error:', e.message);
+        res.status(500).json({ error: 'Apify bağlantı hatası' });
+    });
+    
+    apifyReq.write(actorInput);
+    apifyReq.end();
 });
 
-// Video URL al (indirme için)
+// Video URL al (indirme için) - Apify ile
 app.post('/api/download-url', (req, res) => {
     const { url } = req.body;
     
-    console.log('Getting download URL for:', url);
+    console.log('Getting download URL from Apify for:', url);
     
-    // YouTube bot korumasını aşmak için ek parametreler
-    const command = `yt-dlp --no-check-certificate --user-agent "Mozilla/5.0" --get-url "${url}"`;
-    
-    exec(command, { maxBuffer: 1024 * 1024 * 10 }, (error, stdout, stderr) => {
-        if (error) {
-            console.error('yt-dlp error:', stderr || error.message);
-            // Fallback: Demo video URL döndür
-            console.log('Returning demo video as fallback');
-            return res.json({ 
-                videoUrl: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4'
-            });
-        }
-        
-        const videoUrl = stdout.trim().split('\n')[0]; // İlk URL'i al
-        console.log('Video URL found:', videoUrl.substring(0, 100) + '...');
-        res.json({ videoUrl });
+    // Apify Actor'ü çalıştır
+    const actorInput = JSON.stringify({
+        videos: [{ url: url }],
+        preferredQuality: '720p',
+        preferredFormat: 'mp4'
     });
+    
+    const options = {
+        hostname: 'api.apify.com',
+        path: `/v2/acts/streamers~youtube-video-downloader/run-sync-get-dataset-items?token=${APIFY_TOKEN}`,
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'Content-Length': actorInput.length
+        }
+    };
+    
+    const apifyReq = https.request(options, (apifyRes) => {
+        let data = '';
+        
+        apifyRes.on('data', (chunk) => {
+            data += chunk;
+        });
+        
+        apifyRes.on('end', () => {
+            try {
+                const results = JSON.parse(data);
+                if (results && results.length > 0 && results[0].downloadUrl) {
+                    const videoUrl = results[0].downloadUrl;
+                    console.log('Video URL from Apify:', videoUrl.substring(0, 100) + '...');
+                    res.json({ videoUrl });
+                } else {
+                    console.log('No download URL, returning demo');
+                    res.json({ 
+                        videoUrl: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4'
+                    });
+                }
+            } catch (e) {
+                console.error('Apify parse error:', e.message);
+                res.json({ 
+                    videoUrl: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4'
+                });
+            }
+        });
+    });
+    
+    apifyReq.on('error', (e) => {
+        console.error('Apify request error:', e.message);
+        res.json({ 
+            videoUrl: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4'
+        });
+    });
+    
+    apifyReq.write(actorInput);
+    apifyReq.end();
 });
 
 const PORT = process.env.PORT || 3000;
