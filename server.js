@@ -121,19 +121,36 @@ app.post('/api/download-url', (req, res) => {
         
         apifyRes.on('end', () => {
             try {
+                console.log('Apify RAW Response:', data.substring(0, 500));
                 const results = JSON.parse(data);
-                if (results && results.length > 0 && results[0].downloadUrl) {
-                    const videoUrl = results[0].downloadUrl;
-                    console.log('Video URL from Apify:', videoUrl.substring(0, 100) + '...');
-                    res.json({ videoUrl });
+                console.log('Apify Parsed Results:', JSON.stringify(results, null, 2));
+                
+                if (results && results.length > 0) {
+                    const video = results[0];
+                    console.log('First video object keys:', Object.keys(video));
+                    
+                    // Farklı olası alan adlarını dene
+                    const videoUrl = video.downloadUrl || video.url || video.videoUrl || video.download_url;
+                    
+                    if (videoUrl) {
+                        console.log('Video URL from Apify:', videoUrl.substring(0, 100) + '...');
+                        res.json({ videoUrl });
+                    } else {
+                        console.log('No download URL found in result, returning demo');
+                        console.log('Available fields:', Object.keys(video));
+                        res.json({ 
+                            videoUrl: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4'
+                        });
+                    }
                 } else {
-                    console.log('No download URL, returning demo');
+                    console.log('Empty results from Apify, returning demo');
                     res.json({ 
                         videoUrl: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4'
                     });
                 }
             } catch (e) {
                 console.error('Apify parse error:', e.message);
+                console.error('Raw data:', data.substring(0, 200));
                 res.json({ 
                     videoUrl: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4'
                 });
